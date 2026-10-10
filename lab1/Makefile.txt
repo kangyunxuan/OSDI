@@ -1,0 +1,55 @@
+TARGET      := kernel8
+BUILD       := build
+SRC_DIR     := src
+
+PREFIX      ?= aarch64-none-elf-
+CC          := $(PREFIX)gcc
+OBJCOPY     := $(PREFIX)objcopy
+QEMU        ?= qemu-system-aarch64
+
+CFLAGS      := -mcpu=cortex-a53 -ffreestanding -fno-builtin \
+               -fno-stack-protector -nostdinc -nostdlib -nostartfiles \
+               -Wall -Wextra -O2 -Iinclude
+LDFLAGS     := -T linker.ld -nostdlib
+
+C_SOURCES  := $(wildcard $(SRC_DIR)/*.c)
+ASM_SOURCES := $(wildcard $(SRC_DIR)/*.S)
+OBJECTS     := $(patsubst $(SRC_DIR)/%.c,$(BUILD)/%.o,$(C_SOURCES)) \
+               $(patsubst $(SRC_DIR)/%.S,$(BUILD)/%.o,$(ASM_SOURCES))
+
+ELF := $(BUILD)/$(TARGET).elf
+IMG := $(BUILD)/$(TARGET).img
+
+.PHONY: all image qemu qemu-debug clean
+
+all: image
+
+image: $(IMG)
+
+$(IMG): $(ELF)
+	@mkdir -p $(BUILD)
+	$(OBJCOPY) -O binary $< $@
+	@cp $@ $(TARGET).img
+
+$(ELF): $(OBJECTS) linker.ld
+	@mkdir -p $(BUILD)
+	$(CC) $(LDFLAGS) -o $@ $(OBJECTS)
+
+$(BUILD)/%.o: $(SRC_DIR)/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/%.o: $(SRC_DIR)/%.S
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# QEMU's raspi3b machine boots an AArch64 kernel image directly.
+qemu: image
+	$(QEMU) -M raspi3b -kernel $(IMG) -serial null -serial stdio -display none
+
+qemu-debug: image
+	$(QEMU) -M raspi3b -kernel $(IMG) -serial null -serial stdio -display none \
+		-s -S
+
+clean:
+	rm -rf $(BUILD) $(TARGET).img
